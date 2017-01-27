@@ -1,2 +1,4 @@
-﻿  SearchServerApp.cpp
-  SearchServerOneThread.vcxproj -> C:\Users\João\Desktop\SO\exerc3\Debug\SearchServerOneThread.exe
+﻿C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(392,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (SearchServerOneThread.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+  SearchServerApp.cpp
+c:\users\joão\desktop\so\exerc3\searchserveronethread\searchserverapp.cpp(179): warning C4101: 'numberOfProcessors': unreferenced local variable
+  SearchServerOneThread.vcxproj -> C:\Users\João\Desktop\SO\exerc3\Debug\SearchServer.exe

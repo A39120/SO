@@ -10,6 +10,12 @@ DWORD dwTlsIndex[MAX_SERVERS];
 
 FILE_LIST fileList;
 
+VOID ErrorExit(LPSTR lpszMessage)
+{
+	fprintf(stderr, "%s\n", lpszMessage);
+	ExitProcess(0);
+}
+
 /**
 * Adds file to file list
 * @param file - size of list, if 0 then it'll be MAX_ENTRIES by default
@@ -30,12 +36,12 @@ VOID initFileList(LONG size){
 * @return PFILE_NODE of corresponding file node
 */
 PFILE_NODE addToFileList(PCHAR file) {
-	PFILE_NODE fn = fileList.list + numberOfFiles;
+	PFILE_NODE fn = fileList.list + fileList.numberOfFiles;
 	fn = (PFILE_NODE)malloc(sizeof(FILE_NODE));
 	
-	strcpy(fn->name, file);
-	sprintf(fn->lockName, L"%sMtx", file);
-	fn->fileLock = (HANDLE)CreateMutex(NULL, FALSE, mtxName);
+	memcpy(fn->name, file, MAX_CHARS);
+	sprintf_s(fn->lockName, MAX_CHARS, "%sMtx", file);
+	fn->fileLock = (HANDLE)CreateMutex(NULL, FALSE, fn->lockName);
 	//fn->fileLock = (HANDLE)InitializeCriticalSection...
 	//fn->fileLock = (HANDLE)CreateEvent...
 	return fn;
@@ -47,7 +53,7 @@ PFILE_NODE addToFileList(PCHAR file) {
  * @return PFILE_NODE of corresponding file node
  */
 PFILE_NODE getFile(PCHAR file) {
-	for (int i = 0; i < fileList.numberOfFiles; i++) {
+	for (DWORD i = 0; i < fileList.numberOfFiles; i++) {
 		if (strcmp(file, (fileList.list + i)->name) == 0) {
 			return (fileList.list + i);
 		}
@@ -59,10 +65,10 @@ PFILE_NODE getFile(PCHAR file) {
  * Closes file list.
  */
 VOID closeFileList() {
-	for (int i = 0; i < fileList.numberOfFiles; i++) {
-		PFILE_NODE fn = fileList + i;
-		CloseHandle(fn->fileLock);
+	for (DWORD i = 0; i < fileList.numberOfFiles; i++) {
+		PFILE_NODE fn = (fileList.list + i);
 	}
+	CloseHandle(&fileList.cs);
 	free(fileList.list);
 }
 
