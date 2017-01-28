@@ -149,6 +149,13 @@ error:
 
 }
 
+unsigned __stdcall file_thread(void* arg) {
+
+	return 1;
+error:
+	return 0;
+}
+
 /*-----------------------------------------------------------------------
 This function corresponds to a thread created on main. This function will 
 run in a loop taking requests from SearchClient. It uses the global 
