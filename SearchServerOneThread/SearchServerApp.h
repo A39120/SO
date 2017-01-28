@@ -35,7 +35,13 @@ typedef struct {
 	HANDLE fullSem;		//Blocks if PFILE_NODE is full
 	DWORD get;
 	DWORD put;
-	HANDLE endEvt;		//event to signal the end?
-	Entry entry;		//entry from SearchService/client
+	//Entry entry;		//entry from SearchService/client
 }REQUEST_LIST, *PREQUEST_LIST;
 
+typedef struct {
+	Entry entry;
+	DWORD fileCount;
+	HANDLE beginEvt;
+	HANDLE endEvt;
+	//CRITICAL_SECTION count_iterator; //replaced by interlock increment
+}THREAD_LOCAL, *PTHREAD_LOCAL;

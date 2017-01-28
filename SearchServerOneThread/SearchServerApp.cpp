@@ -6,9 +6,8 @@
 #include "SearchServerApp.h"
 
 static PSearchService service;
-DWORD dwTlsIndex[MAX_SERVERS];
-
 FILE_LIST fileList;
+REQUEST_LIST requests;
 
 VOID ErrorExit(LPSTR lpszMessage)
 {
@@ -78,21 +77,45 @@ It uses the Windows functions for directory file iteration, namely
 "FindFirstFile" and "FindNextFile"
 */
 VOID processEntry(PCHAR path, PEntry entry) {
+	DWORD dwTlsIndex;
+	if ((dwTlsIndex = TlsAlloc()) == TLS_OUT_OF_INDEXES)
+		ErrorExit("TlsAlloc failed");
+
 	HANDLE iterator;
 	WIN32_FIND_DATA fileData;
 	TCHAR buffer[MAX_PATH];		// auxiliary buffer
-	DWORD tokenSize;
-
+	//DWORD tokenSize;
+	
 	_tprintf(_T("Token to search: %s\n"), entry->value);
-
 	// the buffer is needed to define a match string that guarantees 
 	// a priori selection for all files
 	_stprintf_s(buffer, _T("%s\\%s"), path, _T("*.*"));
-
+	
 	// start iteration
 	if ((iterator = FindFirstFile(buffer, &fileData)) == INVALID_HANDLE_VALUE)
 		goto error;
+	
+	DWORD fileCount = 0;
+	// process only file entries
+	do {
+		if (fileData.dwFileAttributes == FILE_ATTRIBUTE_ARCHIVE) {
+			fileCount += 1;
+			
 
+	} while (FindNextFile(iterator, &fileData));
+	
+	// sinalize client and finish answer
+	SetEvent(entry->answReadyEvt);
+	CloseHandle(entry->answReadyEvt);
+	
+	FindClose(iterator);
+	HeapFree(GetProcessHeap(), 0, windowBuffer);
+error:
+	;
+
+}
+
+unsigned __stdcall file_thread(void* arg) {
 	// alloc buffer to hold bytes readed from file stream
 	tokenSize = strlen(entry->value);
 	PCHAR windowBuffer = (PCHAR)HeapAlloc(GetProcessHeap(), 0, tokenSize + 1);
@@ -101,56 +124,32 @@ VOID processEntry(PCHAR path, PEntry entry) {
 	PSharedBlock pSharedBlock = (PSharedBlock)service->sharedMem;
 	answer = pSharedBlock->answers[entry->answIdx];
 	memset(answer, 0, MAX_CHARS);
-
-	// process only file entries
-	do {
-		if (fileData.dwFileAttributes == FILE_ATTRIBUTE_ARCHIVE) {
-			CHAR c;
-			DWORD res, bytesReaded;
-
-			_tprintf(_T("Search on file: %s\n"), fileData.cFileName);
-			HANDLE hFile = CreateFile(fileData.cFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-			assert(hFile != INVALID_HANDLE_VALUE);
-
-			// clear windowBuffer
-			memset(windowBuffer, 0, tokenSize + 1);
-
-			res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
-			while (res && bytesReaded == 1) {
-				
-				// slide window to accommodate new char
-				memmove_s(windowBuffer, tokenSize, windowBuffer + 1, tokenSize - 1);
-				windowBuffer[tokenSize - 1] = c;
-
-				// test accumulated bytes with token
-				if (memcmp(windowBuffer, entry->value, tokenSize) == 0) {
-					
-					// append filename to answer and go to next file
-					strcat_s(answer, MAX_CHARS, fileData.cFileName);
-					strcat_s(answer, MAX_CHARS, "\n");
-					break;
-				}
-				res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
-			}
-			CloseHandle(hFile);
+	
+	CHAR c;
+	DWORD res, bytesReaded;
+	
+	_tprintf(_T("Search on file: %s\n"), fileData.cFileName);
+	HANDLE hFile = CreateFile(fileData.cFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	assert(hFile != INVALID_HANDLE_VALUE);
+	
+	// clear windowBuffer
+	memset(windowBuffer, 0, tokenSize + 1);
+	
+	res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
+	while (res && bytesReaded == 1) {
+		// slide window to accommodate new char
+		memmove_s(windowBuffer, tokenSize, windowBuffer + 1, tokenSize - 1);
+		windowBuffer[tokenSize - 1] = c;
+		// test accumulated bytes with token
+		if (memcmp(windowBuffer, entry->value, tokenSize) == 0) {
+			// append filename to answer and go to next file
+			strcat_s(answer, MAX_CHARS, fileData.cFileName);
+			strcat_s(answer, MAX_CHARS, "\n");
+			break;
 		}
-	} while (FindNextFile(iterator, &fileData));
-
-	// sinalize client and finish answer
-	SetEvent(entry->answReadyEvt);
-	CloseHandle(entry->answReadyEvt);
-
-	FindClose(iterator);
-	HeapFree(GetProcessHeap(), 0, windowBuffer);
-
-
-error:
-	;
-
-}
-
-unsigned __stdcall file_thread(void* arg) {
-
+		res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
+	}
+	CloseHandle(hFile);
 	return 1;
 error:
 	return 0;
@@ -207,6 +206,15 @@ INT main(DWORD argc, PCHAR argv[]) {
 	}
 	printf("Server app: Create service with name = %s. Repository name = %s\n", name, path);
 	service = SearchCreate(name); assert(service != NULL);
+
+	requests = { 0 };
+	requests.files = (PREQUEST_NODE)malloc(sizeof(REQUEST_NODE)*numberOfProcessors);
+	
+	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, "EmptySem");
+	assert(requests.emptySem != NULL);
+
+	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, "FullSem");
+	assert(requests.fullSem != NULL);
 
 	PROCESS_CONTEXT ctx;
 	ctx.path = path;
