@@ -109,15 +109,15 @@ VOID processEntry(PCHAR path, PEntry entry) {
 	CloseHandle(entry->answReadyEvt);
 	
 	FindClose(iterator);
-	HeapFree(GetProcessHeap(), 0, windowBuffer);
 error:
 	;
 
 }
 
 unsigned __stdcall file_thread(void* arg) {
+
 	// alloc buffer to hold bytes readed from file stream
-	tokenSize = strlen(entry->value);
+	DWORD tokenSize = strlen(entry->value);
 	PCHAR windowBuffer = (PCHAR)HeapAlloc(GetProcessHeap(), 0, tokenSize + 1);
 	// set auxiliary vars
 	PCHAR answer;
@@ -150,9 +150,9 @@ unsigned __stdcall file_thread(void* arg) {
 		res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
 	}
 	CloseHandle(hFile);
-	return 1;
+	HeapFree(GetProcessHeap(), 0, windowBuffer);
 error:
-	return 0;
+	;
 }
 
 /*-----------------------------------------------------------------------
@@ -186,12 +186,6 @@ INT main(DWORD argc, PCHAR argv[]) {
 	CHAR pathname[MAX_CHARS*4];
 	HANDLE threads[MAX_SERVERS];
 
-	for (int i = 0; i < MAX_SERVERS; i++) {
-		//each server has it's own storage
-		if ((dwTlsIndex[i] = TlsAlloc()) == TLS_OUT_OF_INDEXES)
-			ErrorExit("TlsAlloc failed");
-	}
-	
 	if (argc < 3) {
 		printf("Use > %s <service_name> <repository pathname>\n", argv[0]);
 		name = "Service1";
@@ -210,10 +204,13 @@ INT main(DWORD argc, PCHAR argv[]) {
 	requests = { 0 };
 	requests.files = (PREQUEST_NODE)malloc(sizeof(REQUEST_NODE)*numberOfProcessors);
 	
-	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, "EmptySem");
+	WCHAR msg[MAX_CHARS];
+	_snwprintf_s(msg, _countof(msg), L"FreeSem");
+	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, msg);
 	assert(requests.emptySem != NULL);
 
-	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, "FullSem");
+	_snwprintf_s(msg, _countof(msg), L"FullSem");
+	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, msg);
 	assert(requests.fullSem != NULL);
 
 	PROCESS_CONTEXT ctx;
