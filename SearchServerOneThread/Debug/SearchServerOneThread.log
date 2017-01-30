@@ -1,13 +1,4 @@
 ﻿C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(392,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (SearchServerOneThread.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   SearchServerApp.cpp
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(117): error C2062: type 'unsigned int' unexpected
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(117): error C2143: syntax error: missing ';' before '{'
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(154): error C2562: 'processEntry': 'void' function returning a value
-  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(79): note: see declaration of 'processEntry'
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(156): error C2562: 'processEntry': 'void' function returning a value
-  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(79): note: see declaration of 'processEntry'
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(165): error C2601: 'server_thread': local function definitions are illegal
-  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(79): note: this line contains a '{' which has not yet been matched
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(182): error C2601: 'main': local function definitions are illegal
-  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(79): note: this line contains a '{' which has not yet been matched
-c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(79): fatal error C1075: the left brace '{' was unmatched at the end of the file
+c:\users\joão\desktop\so\exerc3\searchserveronethread\searchserverapp.cpp(218): warning C4717: 'file_thread': recursive on all control paths, function will cause runtime stack overflow
+  SearchServerOneThread.vcxproj -> C:\Users\João\Desktop\SO\exerc3\Debug\SearchServer.exe

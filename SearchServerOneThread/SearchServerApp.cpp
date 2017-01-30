@@ -15,6 +15,12 @@ VOID ErrorExit(LPSTR lpszMessage)
 	ExitProcess(0);
 }
 
+DWORD getNumberOfProcessors() {
+	SYSTEM_INFO si;
+	GetSystemInfo(&si);
+	return si.dwNumberOfProcessors;
+}
+
 /**
 * Adds file to file list
 * @param file - size of list, if 0 then it'll be MAX_ENTRIES by default
@@ -71,6 +77,20 @@ VOID closeFileList() {
 	free(fileList.list);
 }
 
+VOID InsertRequest(PCHAR filename, DWORD tlsId) {
+	DWORD res;
+	res = WaitForSingleObject(requests.fullSem, INFINITE);
+	assert(res == WAIT_OBJECT_0);
+
+	EnterCriticalSection(&requests.request_section);
+	PREQUEST_NODE req = requests.files + requests.put;
+	requests.put = (requests.put + 1) % MAX_ENTRIES;
+
+	ReleaseSemaphore(requests.emptySem, 1, NULL);
+	LeaveCriticalSection(&requests.request_section);
+}
+
+
 /*-----------------------------------------------------------------------
 This function allows the processing of a selected set of files in a directory
 It uses the Windows functions for directory file iteration, namely
@@ -81,55 +101,91 @@ VOID processEntry(PCHAR path, PEntry entry) {
 	if ((dwTlsIndex = TlsAlloc()) == TLS_OUT_OF_INDEXES)
 		ErrorExit("TlsAlloc failed");
 
+	PTHREAD_LOCAL local = (PTHREAD_LOCAL)LocalAlloc(LPTR, sizeof(THREAD_LOCAL));
+	if (!TlsSetValue(dwTlsIndex, local))
+		ErrorExit("TlsSetValue error");
+
+	local->entry = entry;
+	local->fileCount = 0;
+
+	WCHAR tmp[MAX_CHARS];
+	_snwprintf_s(tmp, _countof(tmp), L"%dStartEndingEvt", dwTlsIndex);
+	local->beginEvt = CreateEventW(NULL, TRUE, FALSE, tmp); assert(local->beginEvt != NULL);
+
+	_snwprintf_s(tmp, _countof(tmp), L"%dEndProccessEvt", dwTlsIndex);
+	local->endEvt = CreateEventW(NULL, TRUE, FALSE, tmp); assert(local->endEvt != NULL);
+
 	HANDLE iterator;
 	WIN32_FIND_DATA fileData;
 	TCHAR buffer[MAX_PATH];		// auxiliary buffer
-	//DWORD tokenSize;
-	
+
 	_tprintf(_T("Token to search: %s\n"), entry->value);
 	// the buffer is needed to define a match string that guarantees 
 	// a priori selection for all files
 	_stprintf_s(buffer, _T("%s\\%s"), path, _T("*.*"));
-	
+
 	// start iteration
 	if ((iterator = FindFirstFile(buffer, &fileData)) == INVALID_HANDLE_VALUE)
-		goto error;
-	
-	DWORD fileCount = 0;
+		ErrorExit("Invalid handle given by FindFirstFile.");
+
 	// process only file entries
 	do {
 		if (fileData.dwFileAttributes == FILE_ATTRIBUTE_ARCHIVE) {
-			fileCount += 1;
-			
-
+			InsertRequest(fileData.cFileName, dwTlsIndex);
+			InterlockedIncrement(&(local->fileCount));
+		}
 	} while (FindNextFile(iterator, &fileData));
-	
+
+	SetEvent(local->beginEvt);
+	DWORD res = WaitForSingleObject(local->endEvt, INFINITE);
+	assert(res == WAIT_OBJECT_0);
+
 	// sinalize client and finish answer
 	SetEvent(entry->answReadyEvt);
 	CloseHandle(entry->answReadyEvt);
-	
-	FindClose(iterator);
-error:
-	;
 
+	LPVOID lpvData = TlsGetValue(dwTlsIndex);
+	if (lpvData != 0)
+		LocalFree((HLOCAL)lpvData);
+
+	FindClose(iterator);
 }
 
 unsigned __stdcall file_thread(void* arg) {
+	PREQUEST_NODE req;
+	DWORD res;
+	
+	EnterCriticalSection(&requests.request_section);
+	//Semaphore 
+	res = WaitForSingleObject(requests.emptySem, INFINITE); assert(res != WAIT_FAILED);
+	res = ReleaseSemaphore(requests.emptySem, 1, NULL); assert(res == 0);
+	
+	//Getting request node
+	req = requests.files + requests.get;
+	requests.get = (requests.get + 1) % MAX_ENTRIES;
+	LeaveCriticalSection(&requests.request_section);
+
+	//Getting local thread storage
+	PTHREAD_LOCAL local = (PTHREAD_LOCAL)TlsGetValue(req->tlsId);
 
 	// alloc buffer to hold bytes readed from file stream
-	DWORD tokenSize = strlen(entry->value);
+	DWORD tokenSize = strlen(local->entry->value);
 	PCHAR windowBuffer = (PCHAR)HeapAlloc(GetProcessHeap(), 0, tokenSize + 1);
 	// set auxiliary vars
 	PCHAR answer;
 	PSharedBlock pSharedBlock = (PSharedBlock)service->sharedMem;
-	answer = pSharedBlock->answers[entry->answIdx];
+	answer = pSharedBlock->answers[local->entry->answIdx];
 	memset(answer, 0, MAX_CHARS);
 	
 	CHAR c;
-	DWORD res, bytesReaded;
+	DWORD bytesReaded;
 	
-	_tprintf(_T("Search on file: %s\n"), fileData.cFileName);
-	HANDLE hFile = CreateFile(fileData.cFileName, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+	_tprintf(_T("Search on file: %s\n"), req->file);
+	PFILE_NODE file = getFile(req->file);
+	res = WaitForSingleObject(file->fileLock, INFINITE); 
+	assert(res == 0);
+
+	HANDLE hFile = CreateFile(file->name, GENERIC_READ, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
 	assert(hFile != INVALID_HANDLE_VALUE);
 	
 	// clear windowBuffer
@@ -141,18 +197,24 @@ unsigned __stdcall file_thread(void* arg) {
 		memmove_s(windowBuffer, tokenSize, windowBuffer + 1, tokenSize - 1);
 		windowBuffer[tokenSize - 1] = c;
 		// test accumulated bytes with token
-		if (memcmp(windowBuffer, entry->value, tokenSize) == 0) {
+		if (memcmp(windowBuffer, local->entry->value, tokenSize) == 0) {
 			// append filename to answer and go to next file
-			strcat_s(answer, MAX_CHARS, fileData.cFileName);
+			strcat_s(answer, MAX_CHARS, file->name);
 			strcat_s(answer, MAX_CHARS, "\n");
 			break;
 		}
 		res = ReadFile(hFile, &c, 1, &bytesReaded, NULL);
 	}
+	ReleaseMutex(file->fileLock);
 	CloseHandle(hFile);
 	HeapFree(GetProcessHeap(), 0, windowBuffer);
-error:
-	;
+	
+	WaitForSingleObject(local->beginEvt, INFINITE);
+	InterlockedDecrement(&(local->fileCount));
+	if (local->fileCount == 0)
+		SetEvent(local->endEvt);
+
+	return file_thread(arg);
 }
 
 /*-----------------------------------------------------------------------
@@ -178,11 +240,35 @@ error:
 	return 0;
 }
 
+VOID InitializeRequestsList(DWORD nop) {
+	requests = { 0 };
+	requests.files = (PREQUEST_NODE)malloc(sizeof(REQUEST_NODE)*nop);
+
+	WCHAR msg[MAX_CHARS];
+	_snwprintf_s(msg, _countof(msg), L"FreeSem");
+	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, msg);
+	assert(requests.emptySem != NULL);
+
+	_snwprintf_s(msg, _countof(msg), L"FullSem");
+	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, msg);
+	assert(requests.fullSem != NULL);
+
+	InitializeCriticalSection(&requests.request_section);
+}
+
+VOID CloseRequestsList() {
+	CloseHandle(requests.emptySem);
+	CloseHandle(requests.fullSem);
+	DeleteCriticalSection(&requests.request_section);
+	free(requests.files);
+}
+
+
 INT main(DWORD argc, PCHAR argv[]) {
 	PCHAR name;
 	PCHAR path;
 	DWORD res;
-	DWORD numberOfProcessors;
+	DWORD numberOfProcessors = getNumberOfProcessors();
 	CHAR pathname[MAX_CHARS*4];
 	HANDLE threads[MAX_SERVERS];
 
@@ -201,17 +287,7 @@ INT main(DWORD argc, PCHAR argv[]) {
 	printf("Server app: Create service with name = %s. Repository name = %s\n", name, path);
 	service = SearchCreate(name); assert(service != NULL);
 
-	requests = { 0 };
-	requests.files = (PREQUEST_NODE)malloc(sizeof(REQUEST_NODE)*numberOfProcessors);
-	
-	WCHAR msg[MAX_CHARS];
-	_snwprintf_s(msg, _countof(msg), L"FreeSem");
-	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, msg);
-	assert(requests.emptySem != NULL);
-
-	_snwprintf_s(msg, _countof(msg), L"FullSem");
-	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, msg);
-	assert(requests.fullSem != NULL);
+	InitializeRequestsList(numberOfProcessors);
 
 	PROCESS_CONTEXT ctx;
 	ctx.path = path;
@@ -221,7 +297,9 @@ INT main(DWORD argc, PCHAR argv[]) {
 		threads[i] = (HANDLE)_beginthreadex(NULL, 0, server_thread, pCtx, 0, NULL);
 	}
 
-	res = WaitForMultipleObjects(MAX_SERVERS, threads, TRUE, INFINITE);
+	res = WaitForSingleObject(service->stopServiceEvt, INFINITE); 
+	assert(res != WAIT_FAILED);
+	//res = WaitForMultipleObjects(MAX_SERVERS, threads, TRUE, INFINITE);
 	printf("Server app: Close service name = %s and exit\n", name);
 	SearchClose(service);
 

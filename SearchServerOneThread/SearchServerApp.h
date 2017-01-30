@@ -24,8 +24,8 @@ typedef struct {
 }FILE_LIST, *PFILE_LIST;
 
 typedef struct {
-	CHAR file[MAX_CHARS];
-	CHAR searchId[MAX_CHARS];
+	PCHAR file;
+	//CHAR searchId[MAX_CHARS]; //already in tls
 	DWORD tlsId;
 }REQUEST_NODE, *PREQUEST_NODE;
 
@@ -35,12 +35,15 @@ typedef struct {
 	HANDLE fullSem;		//Blocks if PFILE_NODE is full
 	DWORD get;
 	DWORD put;
+	CRITICAL_SECTION request_section;
 	//Entry entry;		//entry from SearchService/client
 }REQUEST_LIST, *PREQUEST_LIST;
 
 typedef struct {
-	Entry entry;
-	DWORD fileCount;
+	PEntry entry;
+	//DWORD filesRead;
+	LONG fileCount;
+	//BOOL finished;
 	HANDLE beginEvt;
 	HANDLE endEvt;
 	//CRITICAL_SECTION count_iterator; //replaced by interlock increment
