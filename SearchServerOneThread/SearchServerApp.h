@@ -24,9 +24,20 @@ typedef struct {
 }FILE_LIST, *PFILE_LIST;
 
 typedef struct {
-	PCHAR file;
-	//CHAR searchId[MAX_CHARS]; //already in tls
-	DWORD tlsId;
+	PEntry entry;
+	//DWORD filesRead;
+	LONG fileCount;
+	//BOOL finished;
+	HANDLE beginEvt;
+	HANDLE endEvt;
+	//CRITICAL_SECTION count_iterator; //replaced by interlock increment
+}THREAD_LOCAL, *PTHREAD_LOCAL;
+
+typedef struct {
+	CHAR file[MAX_CHARS];
+	//CHAR searchId[MAX_CHARS];
+	//DWORD tlsId;				 // doesn't work, probably only local to a single thread
+	PTHREAD_LOCAL local;
 }REQUEST_NODE, *PREQUEST_NODE;
 
 typedef struct {
@@ -36,15 +47,5 @@ typedef struct {
 	DWORD get;
 	DWORD put;
 	CRITICAL_SECTION request_section;
-	//Entry entry;		//entry from SearchService/client
 }REQUEST_LIST, *PREQUEST_LIST;
 
-typedef struct {
-	PEntry entry;
-	//DWORD filesRead;
-	LONG fileCount;
-	//BOOL finished;
-	HANDLE beginEvt;
-	HANDLE endEvt;
-	//CRITICAL_SECTION count_iterator; //replaced by interlock increment
-}THREAD_LOCAL, *PTHREAD_LOCAL;

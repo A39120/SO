@@ -77,16 +77,12 @@ VOID closeFileList() {
 	free(fileList.list);
 }
 
-VOID InsertRequest(PCHAR filename, DWORD tlsId) {
-	DWORD res;
-	res = WaitForSingleObject(requests.fullSem, INFINITE);
-	assert(res == WAIT_OBJECT_0);
-
+VOID InsertRequest(PCHAR filename, PTHREAD_LOCAL local) {
 	EnterCriticalSection(&requests.request_section);
 	PREQUEST_NODE req = requests.files + requests.put;
 	requests.put = (requests.put + 1) % MAX_ENTRIES;
-
-	ReleaseSemaphore(requests.emptySem, 1, NULL);
+	memcpy_s(&req->file, MAX_CHARS, filename, MAX_CHARS);
+	req->local = local;
 	LeaveCriticalSection(&requests.request_section);
 }
 
@@ -97,27 +93,29 @@ It uses the Windows functions for directory file iteration, namely
 "FindFirstFile" and "FindNextFile"
 */
 VOID processEntry(PCHAR path, PEntry entry) {
-	DWORD dwTlsIndex;
-	if ((dwTlsIndex = TlsAlloc()) == TLS_OUT_OF_INDEXES)
-		ErrorExit("TlsAlloc failed");
-
-	PTHREAD_LOCAL local = (PTHREAD_LOCAL)LocalAlloc(LPTR, sizeof(THREAD_LOCAL));
-	if (!TlsSetValue(dwTlsIndex, local))
-		ErrorExit("TlsSetValue error");
-
+	//DWORD dwTlsIndex;
+	//if ((dwTlsIndex = TlsAlloc()) == TLS_OUT_OF_INDEXES)
+	//	ErrorExit("TlsAlloc failed");
+	//
+	//PTHREAD_LOCAL local = (PTHREAD_LOCAL)LocalAlloc(LPTR, sizeof(THREAD_LOCAL));
+	PTHREAD_LOCAL local = (PTHREAD_LOCAL)malloc(sizeof(THREAD_LOCAL));
 	local->entry = entry;
 	local->fileCount = 0;
 
 	WCHAR tmp[MAX_CHARS];
-	_snwprintf_s(tmp, _countof(tmp), L"%dStartEndingEvt", dwTlsIndex);
+	_snwprintf_s(tmp, _countof(tmp), L"%dStartEndingEvt", GetCurrentThreadId());
 	local->beginEvt = CreateEventW(NULL, TRUE, FALSE, tmp); assert(local->beginEvt != NULL);
 
-	_snwprintf_s(tmp, _countof(tmp), L"%dEndProccessEvt", dwTlsIndex);
+	_snwprintf_s(tmp, _countof(tmp), L"%dEndProccessEvt", GetCurrentThreadId());
 	local->endEvt = CreateEventW(NULL, TRUE, FALSE, tmp); assert(local->endEvt != NULL);
+
+	//if (!TlsSetValue(dwTlsIndex, local))
+	//	ErrorExit("TlsSetValue error");
 
 	HANDLE iterator;
 	WIN32_FIND_DATA fileData;
 	TCHAR buffer[MAX_PATH];		// auxiliary buffer
+	DWORD res;
 
 	_tprintf(_T("Token to search: %s\n"), entry->value);
 	// the buffer is needed to define a match string that guarantees 
@@ -131,22 +129,29 @@ VOID processEntry(PCHAR path, PEntry entry) {
 	// process only file entries
 	do {
 		if (fileData.dwFileAttributes == FILE_ATTRIBUTE_ARCHIVE) {
-			InsertRequest(fileData.cFileName, dwTlsIndex);
+			res = WaitForSingleObject(requests.emptySem, INFINITE);
+			assert(res == WAIT_OBJECT_0);
+
+			InsertRequest(fileData.cFileName, local);
 			InterlockedIncrement(&(local->fileCount));
+
+			res = ReleaseSemaphore(requests.fullSem, 1, NULL);
+			assert(res != 0);
 		}
 	} while (FindNextFile(iterator, &fileData));
 
 	SetEvent(local->beginEvt);
-	DWORD res = WaitForSingleObject(local->endEvt, INFINITE);
+	res = WaitForSingleObject(local->endEvt, INFINITE);
 	assert(res == WAIT_OBJECT_0);
 
 	// sinalize client and finish answer
 	SetEvent(entry->answReadyEvt);
 	CloseHandle(entry->answReadyEvt);
 
-	LPVOID lpvData = TlsGetValue(dwTlsIndex);
-	if (lpvData != 0)
-		LocalFree((HLOCAL)lpvData);
+	free(local);
+	//LPVOID lpvData = TlsGetValue(dwTlsIndex);
+	//if (lpvData != 0)
+	//	LocalFree((HLOCAL)lpvData);
 
 	FindClose(iterator);
 }
@@ -154,27 +159,31 @@ VOID processEntry(PCHAR path, PEntry entry) {
 unsigned __stdcall file_thread(void* arg) {
 	PREQUEST_NODE req;
 	DWORD res;
-	
-	EnterCriticalSection(&requests.request_section);
 	//Semaphore 
-	res = WaitForSingleObject(requests.emptySem, INFINITE); assert(res != WAIT_FAILED);
-	res = ReleaseSemaphore(requests.emptySem, 1, NULL); assert(res == 0);
+	res = WaitForSingleObject(requests.fullSem, INFINITE); 
+	assert(res != WAIT_FAILED);
+
+	EnterCriticalSection(&requests.request_section);
+
+	res = ReleaseSemaphore(requests.emptySem, 1, NULL); 
+	assert(res != 0);
 	
 	//Getting request node
 	req = requests.files + requests.get;
 	requests.get = (requests.get + 1) % MAX_ENTRIES;
+	PTHREAD_LOCAL local = req->local;
 	LeaveCriticalSection(&requests.request_section);
 
 	//Getting local thread storage
-	PTHREAD_LOCAL local = (PTHREAD_LOCAL)TlsGetValue(req->tlsId);
+	//PTHREAD_LOCAL local = (PTHREAD_LOCAL)TlsGetValue(req->tlsId);
 
 	// alloc buffer to hold bytes readed from file stream
-	DWORD tokenSize = strlen(local->entry->value);
+	DWORD tokenSize = strlen(req->local->entry->value);
 	PCHAR windowBuffer = (PCHAR)HeapAlloc(GetProcessHeap(), 0, tokenSize + 1);
 	// set auxiliary vars
 	PCHAR answer;
 	PSharedBlock pSharedBlock = (PSharedBlock)service->sharedMem;
-	answer = pSharedBlock->answers[local->entry->answIdx];
+	answer = pSharedBlock->answers[req->local->entry->answIdx];
 	memset(answer, 0, MAX_CHARS);
 	
 	CHAR c;
@@ -197,7 +206,7 @@ unsigned __stdcall file_thread(void* arg) {
 		memmove_s(windowBuffer, tokenSize, windowBuffer + 1, tokenSize - 1);
 		windowBuffer[tokenSize - 1] = c;
 		// test accumulated bytes with token
-		if (memcmp(windowBuffer, local->entry->value, tokenSize) == 0) {
+		if (memcmp(windowBuffer, req->local->entry->value, tokenSize) == 0) {
 			// append filename to answer and go to next file
 			strcat_s(answer, MAX_CHARS, file->name);
 			strcat_s(answer, MAX_CHARS, "\n");
@@ -209,10 +218,10 @@ unsigned __stdcall file_thread(void* arg) {
 	CloseHandle(hFile);
 	HeapFree(GetProcessHeap(), 0, windowBuffer);
 	
-	WaitForSingleObject(local->beginEvt, INFINITE);
-	InterlockedDecrement(&(local->fileCount));
+	WaitForSingleObject(req->local->beginEvt, INFINITE);
+	InterlockedDecrement(&(req->local->fileCount));
 	if (local->fileCount == 0)
-		SetEvent(local->endEvt);
+		SetEvent(req->local->endEvt);
 
 	return file_thread(arg);
 }
@@ -244,16 +253,22 @@ VOID InitializeRequestsList(DWORD nop) {
 	requests = { 0 };
 	requests.files = (PREQUEST_NODE)malloc(sizeof(REQUEST_NODE)*nop);
 
+	unsigned int nmb = (unsigned int)nop;
+
 	WCHAR msg[MAX_CHARS];
 	_snwprintf_s(msg, _countof(msg), L"FreeSem");
-	requests.emptySem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, msg);
+	requests.emptySem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, msg);
 	assert(requests.emptySem != NULL);
 
 	_snwprintf_s(msg, _countof(msg), L"FullSem");
-	requests.fullSem = CreateSemaphoreW(NULL, MAX_ENTRIES, MAX_ENTRIES, msg);
+	requests.fullSem = CreateSemaphoreW(NULL, 0, MAX_ENTRIES, msg);
 	assert(requests.fullSem != NULL);
 
 	InitializeCriticalSection(&requests.request_section);
+
+	for (int i = 0; i < nop; i++) {
+		HANDLE thread = (HANDLE)_beginthreadex(NULL, 0, file_thread, NULL, 0, &nmb);
+	}
 }
 
 VOID CloseRequestsList() {
