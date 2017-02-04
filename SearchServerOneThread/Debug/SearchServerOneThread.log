@@ -1,5 +1,15 @@
 ﻿C:\Program Files (x86)\MSBuild\Microsoft.Cpp\v4.0\V140\Microsoft.CppBuild.targets(392,5): warning MSB8028: The intermediate directory (Debug\) contains files shared from another project (SearchServerOneThread.vcxproj).  This can lead to incorrect clean and rebuild behavior.
   SearchServerApp.cpp
-c:\users\joão\desktop\so\exerc3\searchserveronethread\searchserverapp.cpp(269): warning C4018: '<': signed/unsigned mismatch
-c:\users\joão\desktop\so\exerc3\searchserveronethread\searchserverapp.cpp(227): warning C4717: 'file_thread': recursive on all control paths, function will cause runtime stack overflow
-  SearchServerOneThread.vcxproj -> C:\Users\João\Desktop\SO\exerc3\Debug\SearchServer.exe
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(30): warning C4477: '_snwprintf_s' : format string '%s' requires an argument of type 'wchar_t *', but variadic argument 1 has type 'PCHAR'
+  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(30): note: consider using '%hs' in the format string
+  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(30): note: consider using '%Ts' in the format string
+  c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(30): note: consider defining _CRT_STDIO_ISO_WIDE_SPECIFIERS if C99 standard semantics is required
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(63): warning C4018: '<': signed/unsigned mismatch
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(81): warning C4018: '<': signed/unsigned mismatch
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(98): warning C4018: '<': signed/unsigned mismatch
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(92): warning C4101: 'put': unreferenced local variable
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(261): warning C4800: 'BOOL': forcing value to bool 'true' or 'false' (performance warning)
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(285): warning C4102: 'error': unreferenced label
+c:\users\jptl1\desktop\so\so\searchserveronethread\searchserverapp.cpp(90): warning C4715: 'GetRequest': not all control paths return a value
+  SearchServerOneThread.vcxproj -> C:\Users\JPTL1\Desktop\SO\SO\Debug\SearchServer.exe
+  SearchServerOneThread.vcxproj -> C:\Users\JPTL1\Desktop\SO\SO\Debug\SearchServer.pdb (Full PDB)
